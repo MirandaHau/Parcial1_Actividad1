@@ -1,74 +1,66 @@
-from Crypto.PublicKey import RSA
-from Crypto.Cipher import PKCS1_OAEP
+import Crypto.Util.number
 import hashlib
-import Crypto.Util.number as number
 
+e = 65537
 
-def generar_claves():
-    # Generamos dos primos de 1024 bits
-    p = number.getPrime(1024)
-    q = number.getPrime(1024)
-    n = p * q
-    e = 65537  # Número de Fermat 4
-    phi = (p - 1) * (q - 1)
-    d = pow(e, -1, phi)  # Inverso modular de e en phi(n)
+# Generación de dos números primos de 1024 bits
+pA = Crypto.Util.number.getPrime(1024, randfunc=Crypto.Random.get_random_bytes)
+qA = Crypto.Util.number.getPrime(1024, randfunc=Crypto.Random.get_random_bytes)
 
-    # Construimos la clave RSA
-    private_key = RSA.construct((n, e, d))
-    public_key = RSA.construct((n, e))
+print(f'\nNúmeros primos de Alice: {pA} \n y {qA}')
 
-    print("Clave privada generada:", private_key.export_key().decode()[:100], "...")
-    print("Clave pública generada:", public_key.export_key().decode()[:100], "...")
-    return private_key.export_key(), public_key.export_key()
+# Cálculo de la llave pública de Alice (nA)
+nA = pA * qA
+print(f'\nLlave pública de Alice (nA): {nA}')
 
+# Cálculo de phi de Alice
+phiA = (pA - 1) * (qA - 1)
+print(f'\nPhi de Alice: {phiA}')
 
-def dividir_mensaje(mensaje, tamano=128):
-    partes = [mensaje[i:i + tamano] for i in range(0, len(mensaje), tamano)]
-    print(f"Mensaje dividido en {len(partes)} partes.")
-    return partes
+# Cálculo de la llave privada de Alice
+dA = Crypto.Util.number.inverse(e, phiA)
+print(f'\nLlave privada de Alice: {dA}')
 
-
-def cifrar_mensaje(mensaje, public_key):
-    rsa_key = RSA.import_key(public_key)
-    cipher = PKCS1_OAEP.new(rsa_key)
-    bloques = dividir_mensaje(mensaje)
-    mensajes_cifrados = [cipher.encrypt(bloque.encode()) for bloque in bloques]
-    print("Mensaje cifrado en bloques.")
-    return mensajes_cifrados
-
-
-def descifrar_mensaje(mensajes_cifrados, private_key):
-    rsa_key = RSA.import_key(private_key)
-    cipher = PKCS1_OAEP.new(rsa_key)
-    bloques_descifrados = [cipher.decrypt(bloque).decode() for bloque in mensajes_cifrados]
-    print("Mensaje descifrado correctamente.")
-    return "".join(bloques_descifrados)
-
-
-def calcular_hash(mensaje):
-    hash_value = hashlib.sha256(mensaje.encode()).hexdigest()
-    print("Hash generado:", hash_value)
-    return hash_value
-
-
-# 1. Generación de claves
-private_key, public_key = generar_claves()
-
-# 2. Creación del mensaje de 1050 caracteres
+# Creación del mensaje de prueba (1050 caracteres)
 mensaje_original = "A" * 1050  # Mensaje de prueba
 print("Mensaje original:", mensaje_original[:100], "...")
-hash_original = calcular_hash(mensaje_original)
 
-# 3. Cifrado del mensaje por Alice
-mensajes_cifrados = cifrar_mensaje(mensaje_original, public_key)
+# Hash del mensaje original (h(M))
+h1 = int.from_bytes(hashlib.sha256(mensaje_original.encode('utf-8')).digest(), byteorder='big')
+print('\nMensaje hasheado: ', hex(h1))
 
-# 4. Descifrado del mensaje por Bob
-mensaje_descifrado = descifrar_mensaje(mensajes_cifrados, private_key)
-print("Mensaje descifrado:", mensaje_descifrado[:100], "...")
-hash_descifrado = calcular_hash(mensaje_descifrado)
+# Dividir el mensaje en fragmentos de 128 caracteres
+mensaje_dividido = [mensaje_original[i:i+128] for i in range(0, len(mensaje_original), 128)]
 
-# 5. Comparación de hashes
-if hash_original == hash_descifrado:
-    print("El mensaje es auténtico y no ha sido modificado.")
-else:
-    print("¡Advertencia! El mensaje ha sido alterado.")
+# Cifrado del mensaje por Alice (utilizando RSA)
+mensajes_cifrados = []
+for fragmento in mensaje_dividido:
+    m = int.from_bytes(fragmento.encode('utf-8'), byteorder='big')
+    c = pow(m, e, nA)  # Cifrado: c = m^e mod n
+    mensajes_cifrados.append(c)
+
+# Mostrar los fragmentos cifrados
+for i, cifrado in enumerate(mensajes_cifrados):
+    print(f'\nFragmento {i+1} cifrado: {cifrado}')
+
+# Descifrado del mensaje por Bob (utilizando RSA)
+mensajes_descifrados = []
+for c in mensajes_cifrados:
+    m_descifrado = pow(c, dA, nA)  # Descifrado: m = c^d mod n
+    mensajes_descifrados.append(m_descifrado)
+
+# Convertir los fragmentos descifrados de enteros a texto
+fragmentos_descifrados = [int.to_bytes(d, length=(d.bit_length() + 7) // 8, byteorder='big').decode('utf-8', errors='ignore') for d in mensajes_descifrados]
+
+# Mostrar los fragmentos descifrados
+print("\nMensaje descifrado:")
+mensaje_descifrado = "".join(fragmentos_descifrados)
+print(mensaje_descifrado[:100], "...")
+
+# Hash del mensaje descifrado (h(M'))
+h2 = int.from_bytes(hashlib.sha256(mensaje_descifrado.encode('utf-8')).digest(), byteorder='big')
+print('\nMensaje hasheado después de descifrar: ', hex(h2))
+
+# Verificación de si los hashes coinciden
+verificacion = (h1 == h2)
+print('\n¿Los mensajes son iguales después de descifrar? ', verificacion)
